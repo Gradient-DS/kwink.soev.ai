@@ -2,6 +2,15 @@
 
 This guide covers deploying soev.ai with the web scraper stack across two separate VMs for optimal performance and isolation.
 
+**Target OS:** Rocky Linux 9 (with Ubuntu 22.04 alternatives provided)
+
+**Prerequisites:**
+- SSH access to both VMs
+- Ports 80, 443 open on Web App VM
+- Ports 8080, 3002, 8001 accessible between VMs
+- Domain name pointing to Web App VM
+- Basic familiarity with Docker and Linux command line
+
 ## Architecture Overview
 
 ```
@@ -29,14 +38,14 @@ This guide covers deploying soev.ai with the web scraper stack across two separa
 - **CPU**: 4+ cores
 - **RAM**: 8GB minimum, 16GB recommended
 - **Disk**: 50GB SSD
-- **OS**: Ubuntu 22.04 LTS
+- **OS**: Rocky Linux 9 or Ubuntu 22.04 LTS
 - **Ports**: 80, 443, 3080 (internal)
 
 ### Scraper VM
 - **CPU**: 8+ cores (for Playwright rendering)
 - **RAM**: 16GB minimum, 32GB recommended
 - **Disk**: 100GB SSD (for models and cache)
-- **OS**: Ubuntu 22.04 LTS
+- **OS**: Rocky Linux 9 or Ubuntu 22.04 LTS
 - **Ports**: 8080, 3002, 8001 (accessible from Web App VM)
 
 ---
@@ -45,6 +54,26 @@ This guide covers deploying soev.ai with the web scraper stack across two separa
 
 ### 1.1 Initial Server Setup
 
+**Rocky Linux:**
+```bash
+# Update system
+sudo dnf update -y
+
+# Install Docker
+sudo dnf install -y dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Start and enable Docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+
+# Reboot to apply changes
+sudo reboot
+```
+
+**Ubuntu (alternative):**
 ```bash
 # Update system
 sudo apt update && sudo apt upgrade -y
@@ -61,19 +90,49 @@ sudo apt install docker-compose-plugin -y
 sudo reboot
 ```
 
-### 1.2 Firewall Configuration
-
+**Important for Rocky Linux:** SELinux may interfere with Docker volumes. If you encounter permission issues:
 ```bash
-# Allow SSH
-sudo ufw allow 22/tcp
+# Check SELinux status
+sestatus
 
-# Allow access from Web App VM only (replace with actual IP)
-sudo ufw allow from <WEB_APP_VM_IP> to any port 8080 proto tcp  # SearXNG
-sudo ufw allow from <WEB_APP_VM_IP> to any port 3002 proto tcp  # Firecrawl
-sudo ufw allow from <WEB_APP_VM_IP> to any port 8001 proto tcp  # Reranker
+# Option 1: Set SELinux to permissive mode for Docker (recommended)
+sudo semanage permissive -a container_t
 
-# Enable firewall
-sudo ufw enable
+# Option 2: Add SELinux context to Docker directories (more secure)
+sudo chcon -Rt svirt_sandbox_file_t /opt/soev-ai
+
+# Option 3: Disable SELinux (not recommended for production)
+# sudo setenforce 0  # Temporary
+# Edit /etc/selinux/config and set SELINUX=disabled  # Permanent
+```
+
+### 1.2 Firewall Configuration (Optional)
+
+**Note:** Skip this section if your organization manages firewalls centrally or if you cannot modify firewall rules. Ensure that ports 8080, 3002, and 8001 are accessible from the Web App VM IP address through your existing firewall configuration.
+
+**If you can configure firewall rules:**
+
+Rocky Linux uses `firewalld`:
+```bash
+# Check if firewalld is running
+sudo systemctl status firewalld
+
+# Allow services from Web App VM only
+# Replace <LIBRECHAT_VM_IP> with actual IP
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="<LIBRECHAT_VM_IP>" port port="8080" protocol="tcp" accept'
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="<LIBRECHAT_VM_IP>" port port="3002" protocol="tcp" accept'
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="<LIBRECHAT_VM_IP>" port port="8001" protocol="tcp" accept'
+
+# Reload firewall
+sudo firewall-cmd --reload
+```
+
+Ubuntu with UFW:
+```bash
+# Allow access from LibreChat VM only
+sudo ufw allow from <LIBRECHAT_VM_IP> to any port 8080 proto tcp comment 'SearXNG from LibreChat'
+sudo ufw allow from <LIBRECHAT_VM_IP> to any port 3002 proto tcp comment 'Firecrawl from LibreChat'
+sudo ufw allow from <LIBRECHAT_VM_IP> to any port 8001 proto tcp comment 'Reranker from LibreChat'
 ```
 
 ### 1.3 Clone Repository
@@ -136,39 +195,16 @@ server:
   bind_address: "0.0.0.0"  # Listen on all interfaces
 ```
 
-### 1.6 Update docker-compose.scraper.yml for Production
+### 1.6 Production Configuration
 
-Edit `docker-compose.scraper.yml`:
+The repository includes `deploy-compose.scraper.yml` which is pre-configured for production deployment. It includes:
 
-```yaml
-services:
-  # ... existing services ...
-  
-  firecrawl_api:
-    build: ./firecrawl/apps/api
-    container_name: scraper_firecrawl_api
-    restart: always  # Changed from unless-stopped
-    command: node dist/src/harness.js --start-docker
-    ports:
-      - "0.0.0.0:3002:3002"  # Bind to all interfaces
-    # ... rest of config
-  
-  reranker_proxy:
-    build: ./reranker-proxy
-    container_name: scraper_reranker
-    restart: always  # Changed from unless-stopped
-    ports:
-      - "0.0.0.0:8001:8000"  # Bind to all interfaces
-    # ... rest of config
-  
-  searxng:
-    image: searxng/searxng:latest
-    container_name: scraper_searxng
-    restart: always  # Changed from unless-stopped
-    ports:
-      - "0.0.0.0:8080:8080"  # Bind to all interfaces
-    # ... rest of config
-```
+- All services set to `restart: always` for production reliability
+- Ports bound to `0.0.0.0` (all interfaces) for external access from Web App VM
+- Resource limits to prevent resource exhaustion
+- Internal Docker networking for service-to-service communication
+
+**Note:** Services communicate internally via Docker network. Only ports 8080, 3002, and 8001 are exposed to allow the Web App VM to connect.
 
 ### 1.7 Build and Start Services
 
@@ -179,16 +215,16 @@ cd /opt/soev-ai
 source .env.scraper
 
 # Build services (first time)
-docker compose -f docker-compose.scraper.yml build
+docker compose -f deploy-compose.scraper.yml build
 
 # Start services
-docker compose -f docker-compose.scraper.yml up -d
+docker compose -f deploy-compose.scraper.yml up -d
 
 # Check logs
-docker compose -f docker-compose.scraper.yml logs -f
+docker compose -f deploy-compose.scraper.yml logs -f
 
 # Verify services are running
-docker compose -f docker-compose.scraper.yml ps
+docker compose -f deploy-compose.scraper.yml ps
 ```
 
 ### 1.8 Verify Scraper Services
@@ -220,34 +256,85 @@ curl -X POST http://localhost:8001/v1/rerank \
 
 ### 2.1 Initial Server Setup
 
+**Rocky Linux:**
 ```bash
 # Update system
-sudo apt update && sudo apt upgrade -y
+sudo dnf update -y
 
 # Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
+sudo dnf install -y dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Install Docker Compose
-sudo apt install docker-compose-plugin -y
+# Start and enable Docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
 
 # Reboot
 sudo reboot
 ```
 
-### 2.2 Firewall Configuration
+**Rocky Linux (alternative):**
+```bash
+# Update system
+sudo dnf update -y
 
+# Install Docker
+sudo dnf install -y dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Start and enable Docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+
+# Reboot
+sudo reboot
+```
+
+**Important for Rocky Linux:** SELinux may interfere with volume mounts. If you encounter permission issues:
+```bash
+# Check SELinux status
+sestatus
+
+# Option 1: Set SELinux to permissive mode for Docker (recommended)
+sudo semanage permissive -a container_t
+
+# Option 2: Add SELinux context to volumes (more secure)
+sudo chcon -Rt svirt_sandbox_file_t /srv/soevai
+sudo chcon -Rt svirt_sandbox_file_t /opt/soev-ai
+
+# Option 3: Disable SELinux (not recommended for production)
+# sudo setenforce 0  # Temporary
+# Edit /etc/selinux/config and set SELINUX=disabled  # Permanent
+```
+
+### 2.2 Firewall Configuration (Optional)
+
+**Note:** Skip this section if your organization manages firewalls centrally. Ensure ports 80 and 443 are open to the public for HTTPS traffic.
+
+**If you can configure firewall rules:**
+
+Rocky Linux uses `firewalld`:
+```bash
+# Check if firewalld is running
+sudo systemctl status firewalld
+
+# Allow HTTP and HTTPS
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+
+# Reload firewall
+sudo firewall-cmd --reload
+```
+
+Ubuntu with UFW:
 ```bash
 # Allow HTTP/HTTPS
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-
-# Allow SSH
-sudo ufw allow 22/tcp
-
-# Enable firewall
-sudo ufw enable
 ```
 
 ### 2.3 Clone Repository
@@ -354,26 +441,161 @@ webSearch:
 
 ### 2.6 SSL Certificate Setup
 
+The deployment uses automated SSL certificate management via the certbot container. Follow these steps:
+
+#### Step 1: Prepare Certificate Directories
+
 ```bash
-# Install Certbot
-sudo apt install certbot -y
-
-# Stop nginx if running
-docker compose -f deploy-compose.soev.ai.yml stop client
-
-# Obtain certificate (replace yourdomain.com)
-sudo certbot certonly --standalone -d yourdomain.com -d www.yourdomain.com
-
-# Copy certificates to expected location
+# Create required directories
 sudo mkdir -p /srv/soevai/letsencrypt
-sudo cp -r /etc/letsencrypt/* /srv/soevai/letsencrypt/
+sudo mkdir -p /srv/soevai/certbot-www
+sudo mkdir -p /srv/soevai/letsencrypt-log
+
+# Set permissions
+sudo chmod -R 755 /srv/soevai
 ```
 
-### 2.7 Configure Nginx
+#### Step 2: Configure Nginx for Initial HTTP-Only Mode
 
-Ensure `client/nginx.conf` is configured for your domain with SSL.
+First, you need to configure nginx to serve HTTP and handle ACME challenges before obtaining certificates.
 
-### 2.8 Start Services
+Check that `client/nginx.conf` has an HTTP server block for ACME challenges:
+
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+
+    # ACME challenge location for Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Redirect all other HTTP traffic to HTTPS (after cert is obtained)
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+```
+
+#### Step 3: Start Services in HTTP-Only Mode
+
+```bash
+cd /opt/soev-ai
+
+# Load environment variables
+source .env
+
+# Start only the client (nginx) and certbot services first
+docker compose -f deploy-compose.soev.ai.yml up -d client certbot
+```
+
+#### Step 4: Obtain SSL Certificate
+
+```bash
+# Obtain certificate using certbot container
+docker compose -f deploy-compose.soev.ai.yml run --rm certbot certonly \
+  --webroot \
+  --webroot-path=/var/www/certbot \
+  --email your-email@example.com \
+  --agree-tos \
+  --no-eff-email \
+  -d yourdomain.com \
+  -d www.yourdomain.com
+```
+
+**Alternative: Using standalone mode (if you stop nginx first):**
+```bash
+# Stop nginx temporarily
+docker compose -f deploy-compose.soev.ai.yml stop client
+
+# Obtain certificate
+docker compose -f deploy-compose.soev.ai.yml run --rm certbot certonly \
+  --standalone \
+  --preferred-challenges http \
+  --email your-email@example.com \
+  --agree-tos \
+  --no-eff-email \
+  -d yourdomain.com \
+  -d www.yourdomain.com
+
+# Start nginx again
+docker compose -f deploy-compose.soev.ai.yml up -d client
+```
+
+#### Step 5: Verify Certificate Files
+
+```bash
+# Check that certificates were created
+sudo ls -la /srv/soevai/letsencrypt/live/yourdomain.com/
+
+# You should see:
+# - cert.pem
+# - chain.pem
+# - fullchain.pem
+# - privkey.pem
+```
+
+#### Step 6: Update Nginx for HTTPS
+
+Ensure your `client/nginx.conf` has the HTTPS server block configured:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com www.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Proxy to API
+    location /api {
+        proxy_pass http://api:3080/api;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Serve static files
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+#### Step 7: Restart Nginx
+
+```bash
+# Restart nginx to apply SSL configuration
+docker compose -f deploy-compose.soev.ai.yml restart client
+```
+
+#### Automatic Renewal
+
+The certbot container in `deploy-compose.soev.ai.yml` automatically renews certificates every 12 hours. No manual intervention needed.
+
+**Verify auto-renewal is working:**
+```bash
+# Check certbot container logs
+docker logs certbot-soevai -f
+
+# Test renewal manually (dry run)
+docker compose -f deploy-compose.soev.ai.yml exec certbot certbot renew --dry-run
+```
+
+### 2.7 Start All Services
 
 ```bash
 cd /opt/soev-ai
@@ -424,7 +646,7 @@ docker exec -it librechat_api curl http://<SCRAPER_VM_IP>:8001/health
 **Scraper VM:**
 ```bash
 # View all logs
-docker compose -f docker-compose.scraper.yml logs -f
+docker compose -f deploy-compose.scraper.yml logs -f
 
 # View specific service
 docker logs scraper_searxng -f
@@ -432,7 +654,7 @@ docker logs scraper_firecrawl_api -f
 docker logs scraper_reranker -f
 
 # Clear old logs (optional)
-docker compose -f docker-compose.scraper.yml logs --tail=1000 > /var/log/scraper.log
+docker compose -f deploy-compose.scraper.yml logs --tail=1000 > /var/log/scraper.log
 ```
 
 **Web App VM:**
@@ -471,7 +693,7 @@ docker compose ps
 # Backup configuration
 cd /opt/soev-ai
 tar -czf scraper-config-$(date +%Y%m%d).tar.gz \
-  docker-compose.scraper.yml \
+  deploy-compose.scraper.yml \
   searxng/settings.yml \
   .env.scraper
 
@@ -509,10 +731,10 @@ git pull
 git submodule update --init --recursive
 
 # Rebuild services
-docker compose -f docker-compose.scraper.yml build --no-cache
+docker compose -f deploy-compose.scraper.yml build --no-cache
 
 # Restart with zero downtime
-docker compose -f docker-compose.scraper.yml up -d
+docker compose -f deploy-compose.scraper.yml up -d
 ```
 
 **Web App VM:**
@@ -534,53 +756,56 @@ docker compose -f deploy-compose.soev.ai.yml ps
 
 ---
 
-## Part 5: Security Hardening
+## Part 5: Security Best Practices
 
 ### 5.1 Scraper VM Security
 
+**System Updates:**
 ```bash
-# Limit SSH access
-sudo vi /etc/ssh/sshd_config
-# Set: PermitRootLogin no
-# Set: PasswordAuthentication no
-sudo systemctl restart sshd
+# Rocky Linux - Enable automatic security updates
+sudo dnf install -y dnf-automatic
+sudo systemctl enable --now dnf-automatic.timer
 
-# Install fail2ban
-sudo apt install fail2ban -y
-sudo systemctl enable fail2ban
+# Ubuntu - Enable automatic security updates
+sudo apt install unattended-upgrades -y
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
 
-# Regular security updates
-sudo apt update && sudo apt upgrade -y
+**Docker Security:**
+```bash
+# Limit resource usage to prevent DoS
+# Already configured in deploy-compose.scraper.yml
+
+# Keep Docker updated
+sudo dnf update docker-ce docker-ce-cli  # Rocky Linux
+# or
+sudo apt update && sudo apt upgrade docker-ce  # Ubuntu
 ```
 
 ### 5.2 Web App VM Security
 
+**System Updates:**
 ```bash
-# Same SSH hardening as above
-
-# Configure automatic security updates
-sudo apt install unattended-upgrades -y
-sudo dpkg-reconfigure --priority=low unattended-upgrades
-
-# Monitor failed login attempts
-sudo journalctl -u ssh -f
+# Same as Scraper VM above
 ```
 
-### 5.3 Network Security
+**Application Security:**
+- Ensure `.env` file has strong, unique secrets
+- Regularly update Docker images
+- Monitor logs for suspicious activity
 
-```bash
-# On both VMs: Implement IP allowlisting
-sudo ufw status numbered
-sudo ufw delete <rule-number>  # Remove any overly permissive rules
+### 5.3 Network Security Recommendations
 
-# Web App VM: Only allow Scraper VM IP
-sudo ufw allow from <SCRAPER_VM_IP> to any port 3080
+**IP Allowlisting:**
+If your organization allows, configure firewall rules to:
+- Allow scraper services (8080, 3002, 8001) only from Web App VM IP
+- Allow Web App (80, 443) from trusted networks only
+- Use your organization's VPN/firewall for access control
 
-# Scraper VM: Only allow Web App VM IP
-sudo ufw allow from <WEB_APP_VM_IP> to any port 8080
-sudo ufw allow from <WEB_APP_VM_IP> to any port 3002
-sudo ufw allow from <WEB_APP_VM_IP> to any port 8001
-```
+**Service Isolation:**
+- Scraper VM services should not be publicly accessible
+- Only Web App VM should communicate with Scraper VM
+- Use internal/private IPs where possible
 
 ---
 
@@ -601,7 +826,7 @@ telnet <SCRAPER_VM_IP> 8001
 sudo ufw status
 
 # Check services are bound to 0.0.0.0
-docker compose -f docker-compose.scraper.yml ps
+docker compose -f deploy-compose.scraper.yml ps
 netstat -tlnp | grep -E '8080|3002|8001'
 ```
 
@@ -613,11 +838,11 @@ netstat -tlnp | grep -E '8080|3002|8001'
 ```bash
 # Rebuild with no cache
 cd /opt/soev-ai
-docker compose -f docker-compose.scraper.yml stop reranker_proxy
-docker compose -f docker-compose.scraper.yml rm reranker_proxy
+docker compose -f deploy-compose.scraper.yml stop reranker_proxy
+docker compose -f deploy-compose.scraper.yml rm reranker_proxy
 docker rmi kwinksoevai-reranker_proxy
-docker compose -f docker-compose.scraper.yml build --no-cache reranker_proxy
-docker compose -f docker-compose.scraper.yml up -d reranker_proxy
+docker compose -f deploy-compose.scraper.yml build --no-cache reranker_proxy
+docker compose -f deploy-compose.scraper.yml up -d reranker_proxy
 
 # Check logs
 docker logs scraper_reranker -f
@@ -662,7 +887,7 @@ docker logs scraper_firecrawl_api | grep "worker"
 ### 7.1 Scraper VM Optimization
 
 ```yaml
-# docker-compose.scraper.yml - Adjust resources based on load
+# deploy-compose.scraper.yml - Adjust resources based on load
 
 services:
   firecrawl_api:
@@ -751,7 +976,7 @@ cd soev-ai
 tar -xzf scraper-config-backup.tar.gz
 
 # Rebuild and start
-docker compose -f docker-compose.scraper.yml up -d
+docker compose -f deploy-compose.scraper.yml up -d
 ```
 
 **Web App VM:**
@@ -781,30 +1006,30 @@ docker compose -f deploy-compose.soev.ai.yml up -d
 ## Summary Checklist
 
 ### Scraper VM
-- [ ] Ubuntu 22.04 installed
+- [ ] Rocky Linux 9 (or Ubuntu 22.04) installed
 - [ ] Docker & Docker Compose installed
 - [ ] Firecrawl submodule initialized
 - [ ] `.env.scraper` configured with secrets
-- [ ] Firewall configured (UFW)
+- [ ] Firewall allows access from Web App VM IP (if configurable)
 - [ ] `searxng/settings.yml` configured for production
 - [ ] Services started and verified
-- [ ] Accessible from Web App VM
+- [ ] Accessible from Web App VM on ports 8080, 3002, 8001
 
 ### Web App VM
-- [ ] Ubuntu 22.04 installed
+- [ ] Rocky Linux 9 (or Ubuntu 22.04) installed
 - [ ] Docker & Docker Compose installed
 - [ ] `.env` configured with all secrets
-- [ ] SSL certificates obtained and configured
+- [ ] SSL certificates obtained via certbot
 - [ ] `librechat.soev.ai.yaml` configured
 - [ ] Scraper VM URLs configured in `.env`
 - [ ] Services started and verified
 - [ ] Domain pointing to server
-- [ ] HTTPS working
+- [ ] HTTPS working and auto-renewal enabled
 
 ### Both VMs
+- [ ] Automatic security updates configured
 - [ ] Backups configured
 - [ ] Monitoring in place
-- [ ] Security hardening applied
 - [ ] Update procedure documented
 
 ---
@@ -815,13 +1040,79 @@ docker compose -f deploy-compose.soev.ai.yml up -d
 - **SearXNG Docs**: https://docs.searxng.org/
 - **LibreChat Docs**: https://www.librechat.ai/docs/
 - **Docker Docs**: https://docs.docker.com/
+- **Rocky Linux Docs**: https://docs.rockylinux.org/
+
+## Rocky Linux Quick Reference
+
+### Package Management
+```bash
+# Update system
+sudo dnf update -y
+
+# Install package
+sudo dnf install -y package-name
+
+# Search for package
+sudo dnf search keyword
+
+# Remove package
+sudo dnf remove package-name
+```
+
+### Service Management
+```bash
+# Start service
+sudo systemctl start service-name
+
+# Stop service
+sudo systemctl stop service-name
+
+# Enable service (start on boot)
+sudo systemctl enable service-name
+
+# Check service status
+sudo systemctl status service-name
+
+# View service logs
+sudo journalctl -u service-name -f
+```
+
+### Firewall Management (firewalld)
+```bash
+# Check status
+sudo firewall-cmd --state
+
+# List all rules
+sudo firewall-cmd --list-all
+
+# Add service
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --reload
+
+# Add port
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --reload
+
+# Add rich rule (IP-specific)
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.0.0.1" port port="8080" protocol="tcp" accept'
+sudo firewall-cmd --reload
+```
+
+### File Permissions
+```bash
+# Change ownership
+sudo chown -R user:group /path/to/directory
+
+# Change permissions
+sudo chmod -R 755 /path/to/directory
+```
 
 ## Need Help?
 
 Check logs first:
 ```bash
 # Scraper VM
-docker compose -f docker-compose.scraper.yml logs -f
+docker compose -f deploy-compose.scraper.yml logs -f
 
 # Web App VM
 docker compose -f deploy-compose.soev.ai.yml logs -f api
