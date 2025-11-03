@@ -5,12 +5,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-api_key = os.getenv('UBIOPS_KEY_1')
-base_url = 'https://api.intermax.ubiops.com/v2.1/projects/gradient-ds-proxy/openai-compatible/v1'
+api_key = os.getenv('UBIOPS_KEY')
+base_url = 'https://api.intermax.ubiops.com/v2.1/projects/gradient-ds-proxy-2/openai-compatible/v1'
 chat_model = 'ubiops-deployment/gpt-oss-120b/v1/openai/gpt-oss-120b'
 
 if not api_key:
-    print("Error: UBIOPS_RAG_1 environment variable not found")
+    print("Error: UBIOPS_KEY environment variable not found")
     exit(1)
 
 print(f"Using base URL: {base_url}/chat/completions")
@@ -24,7 +24,7 @@ payload = {
     "messages": [
         {"role": "user", "content": "Say hello in exactly 3 words"}
     ],
-    "max_tokens": 10
+    "max_tokens": 250
 }
 
 headers = {
