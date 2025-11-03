@@ -1,10 +1,8 @@
 services:
   api:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile.multi
-    #   target: api-build
-    image: ghcr.io/gradient-ds/soevai-api:${LIBRECHAT_TAG:-latest}
+    # Update the image name to match your GitHub Container Registry
+    # Format: ghcr.io/<your-github-username>/kwink-soevai-api:latest
+    image: ${LIBRECHAT_IMAGE:-ghcr.io/gradient-ds/kwink-soevai-api:latest}
     container_name: librechat_api
     ports:
       - 3080:3080
