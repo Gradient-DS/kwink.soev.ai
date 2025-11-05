@@ -361,7 +361,7 @@ endpoints:
     # File citation settings
     minRelevanceScore: 0.01       # Lower threshold to show more results (default: 0.45)
     maxCitations: 50              # Maximum total citations (increased from 30)
-    maxCitationsPerFile: 10       # Max citations per file (increased from 5)
+    maxCitationsPerFile: 10       # Max citations per file (increased from 5
 
 
 includedTools:
