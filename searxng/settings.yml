@@ -44,13 +44,15 @@ search:
   favicon_resolver: ""
   # Default search language - leave blank to detect from browser information or
   # use codes from 'languages.py'
-  default_lang: "auto"
+  default_lang: "nl-NL"
   # max_page: 0  # if engine supports paging, 0 means unlimited numbers of pages
   # Available languages
-  # languages:
-  #   - all
-  #   - en
-  #   - en-US
+  languages:
+    - all
+    - en
+    - en-US
+    - nl
+    - nl-NL
   #   - de
   #   - it-IT
   #   - fr
@@ -136,7 +138,7 @@ ui:
   # cache_url: "https://webcache.googleusercontent.com/search?q=cache:"
   # Default interface locale - leave blank to detect from browser information or
   # use codes from the 'locales' config section
-  default_locale: ""
+  default_locale: "nl"
   # Open result links in a new tab by default
   # results_on_new_tab: false
   theme_args:
@@ -251,8 +253,19 @@ plugins:
 
 # Configuration of the "Hostnames plugin":
 #
-# hostnames:
-#   replace:
+hostnames:
+  remove:
+    - '.*\.cn$'
+    - '.*\.中国$'
+    - '.*\.公司$'
+    - '.*\.网络$'
+    - '(.*\.)?baidu\.com$'
+    - '(.*\.)?zhihu\.com$'
+    - '(.*\.)?baidu\.cn$'
+    - '(.*\.)?qq\.com$'
+    - '(.*\.)?sogou\.com$'
+    - '(.*\.)?sohu\.com$'
+    - '(.*\.)?163\.com$'
 #     '(.*\.)?youtube\.com$': 'yt.example.com'
 #     '(.*\.)?youtu\.be$': 'yt.example.com'
 #     '(.*\.)?reddit\.com$': 'teddit.example.com'
@@ -388,6 +401,7 @@ engines:
 
   - name: alexandria
     engine: json_engine
+    number_of_results: 2
     shortcut: alx
     categories: general
     paging: true
@@ -694,6 +708,7 @@ engines:
 
   - name: yep
     engine: yep
+    number_of_results: 2
     shortcut: yep
     categories: general
     search_type: web
@@ -1368,6 +1383,7 @@ engines:
 
   - name: mwmbl
     engine: mwmbl
+    number_of_results: 1
     # api_url: https://api.mwmbl.org
     shortcut: mwm
     disabled: false
@@ -2361,6 +2377,7 @@ engines:
   - name: mojeek
     shortcut: mjk
     engine: mojeek
+    number_of_results: 2
     categories: [general, web]
     disabled: false
 
