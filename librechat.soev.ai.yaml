@@ -245,45 +245,40 @@ endpoints:
     #   dropParams: ['stop', 'user', 'frequency_penalty', 'presence_penalty']
       
 
-    # - name: 'Nebul'
-    #   apiKey: '${NEBUL_API_KEY}'
-    #   baseURL: 'https://api.chat.nebul.io/v1'
-    #   dropParams: ['tool_choice'] 
-    #   models:
-    #     default:
-    #       - 'gpt-oss-120b-nim'
-    #       - 'meta-llama/Llama-4-Maverick-17B-128E-Instruct'
-    #       - 'mistralai/Mistral-Small-3.2-24B-Instruct-2506'
-    #       - 'deepseek-ai/DeepSeek-R1'
-    #       - 'Qwen/Qwen3-VL-235B-A22B-Thinking'
-    #       - 'deepseek-ai/DeepSeek-V3.1'
-    #     fetch: true
-    #   modelDisplayLabel: 'Nebul'
-    #   titleConvo: true
-    #   titleModel: 'gpt-oss-120b-nim'
 
-
-    - name: 'soev.ai'
+    - name: 'soev.ai-intermax'
       apiKey: '${UBIOPS_KEY}'
       baseURL: 'https://api.intermax.ubiops.com/v2.1/projects/gradient-ds-proxy-2/openai-compatible/v1'
       models:
         default:
           - 'ubiops-deployment/gpt-oss-120b/v1/openai/gpt-oss-120b'
         fetch: false
-      modelDisplayLabel: 'soev.ai'
+      modelDisplayLabel: 'soev.ai-intermax'
       titleConvo: true
       titleModel: 'ubiops-deployment/gpt-oss-120b/v1/openai/gpt-oss-120b'
-      
-    - name: 'Open Source'
-      apiKey: '${HF_KEY}'
-      baseURL: 'https://router.huggingface.co/v1'
+
+
+    - name: 'soev.ai-nebul'
+      apiKey: '${NEBUL_API_KEY}'
+      baseURL: 'https://api.chat.nebul.io/v1'
+      dropParams: ['tool_choice'] 
       models:
         default:
-          - 'openai/gpt-oss-120b:groq'
-        fetch: false
-      modelDisplayLabel: 'soev.ai'
+          - 'gpt-oss-120b'
+      modelDisplayLabel: 'soev.ai-nebul'
       titleConvo: true
-      titleModel: 'openai/gpt-oss-120b:groq'
+      titleModel: 'gpt-oss-120b'
+      
+    # - name: 'Open Source'
+    #   apiKey: '${HF_KEY}'
+    #   baseURL: 'https://router.huggingface.co/v1'
+    #   models:
+    #     default:
+    #       - 'openai/gpt-oss-120b:groq'
+    #     fetch: false
+    #   modelDisplayLabel: 'soev.ai'
+    #   titleConvo: true
+    #   titleModel: 'openai/gpt-oss-120b:groq'
 
     # - name: 'UbiOps GPT'
     #   apiKey: '${UBIOPS_KEY_GPT}'

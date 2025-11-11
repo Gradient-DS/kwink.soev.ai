@@ -66,6 +66,7 @@ services:
       
       # UbiOps Configuration
       UBIOPS_KEY: ${UBIOPS_KEY}
+      NEBUL_API_KEY: ${NEBUL_API_KEY}
 
       ENDPOINTS: ${ENDPOINTS}
     volumes:
